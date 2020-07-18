@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Generate Conversation Pairs</title>
+	<style type="text/css">
+		textarea {
+			width:400px;
+			height:600px;
+		}
+		.container {
+			display: flex;
+			flex-direction: row;
+		}
+		.container div.col {
+			margin-right: 2em;
+			padding-right: 2em;
+			border-right: 1px solid black;
+		}
+		.container div.col:last-child {
+			border: 0;
+		}
+		.col:first-child {
+			min-width:400px;
+		}
+		.col:nth-child(2) {
+			min-width:200px;
+		}
+		#output p {
+			padding:0;
+			margin:0.2em;
+		}
+		#output {
+			display: flex;
+			flex-direction: row;
+			overflow:scroll;
+		}
+		#output div {
+			margin-right:1em;
+			padding-right:1em;
+			border-right: 1px solid black;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="col">
+			<p>List of names (comma separation)</p>
+			<textarea id="names">alan, michelle, steve, joe, john, bob, billy</textarea>
+		</div>
+		<div class="col">
+			<p>Click "go" to generate a new group!</p>
+			<p>Size of each group: <select id="size">
+				<option value="2">2</option>
+				<option value="3">3</option>
+				<option value="4">4</option>
+			</select></p>
+			<!--
+			<p>Number of iterations: <select id="iter">
+				<option value="1">1</option>
+				<option value="2">2</option>
+				<option value="3">3</option>
+				<option value="4">4</option>
+			</select></p>
+		-->
+			<button id="generate">Go</button>
+			<button id="clear">Clear memory</button>
+		</div>
+		<div class="col">
+			<h3>Output</h3>
+			<div id="output">
+			</div>
+		</div>
+	</div>
+	<script type="text/javascript">
+		const output = document.getElementById("output");
+		let prevs = [];
+
+		function ri(arr) {
+			return Math.floor(Math.random() * arr.length);
+		}
+		function save() {
+			localStorage.setItem("memory", JSON.stringify(prevs));
+		}
+		function load() {
+			const item = localStorage.getItem("memory");
+			console.log('loaded ' + item);
+			if(!item) {prevs = []; console.log(prevs); }
+			else prevs = JSON.parse(item);
+			console.log(prevs);
+		}
+		function clear() {
+			console.log('clearing!');
+			localStorage.clear();
+			load();
+			renderGroups();
+		}
+		function renderGroups() {
+			output.innerHTML = "";
+			console.log(prevs);
+			for(let i = 0; i < prevs.length; i++) { 
+				const d = document.createElement("div");
+
+				const b = document.createElement("h2");
+				b.innerHTML = "Iteration "+(i+1);
+				d.appendChild(b);
+
+				let arr = prevs[i];
+				for(let j=0; j<arr.length; j++) {
+					const b = document.createElement("h3");
+					b.innerHTML = "Group "+(j+1);
+					d.appendChild(b);
+					for(const el of arr[j]) {
+						const p = document.createElement("p");
+						p.innerHTML = el;
+						d.appendChild(p);
+					}
+				}
+				output.appendChild(d);
+			}
+		}
+		function makeGroups(names, size) {
+			let curr = [[]];
+			let arr = [...names];
+			while(arr.length > 0) {
+				// take a random element and put it in
+				const idx = ri(arr);
+				const el = arr.splice(idx, 1)[0];
+				if(curr[curr.length-1].length === size) curr.push([]);
+				curr[curr.length-1].push(el);
+			}
+
+			const last = curr[curr.length-1];
+
+			if(
+				(size / 2 < last.length && last.length < size)
+				|| last.length === 1
+			) {
+				while(last.length > 0) {
+					curr[last.length-1].push(last[0]);
+					last.splice(0, 1);
+				}
+				curr.splice(-1);
+			}
+
+			for(const group of curr) {
+				group.sort();
+			}
+
+			curr.sort((a, b) => {
+				const nameA = a[0].toUpperCase();
+				const nameB = b[0].toUpperCase();
+				if (nameA < nameB) return -1;
+			  	if (nameA > nameB) return 1;
+				return 0;
+			});
+
+			return curr;
+		}
+		function getCounts(list) {
+			let counts = {}; // number of times each person appears with each other person
+			for(group of list) {
+				for(name of group) {
+					for(name2 of group) {
+						if(name === name2) continue;
+						if(!counts[name]) counts[name] = [];
+						counts[name].push(name2);
+					}
+				}
+			}
+			return counts;
+		}
+		function dist(list1, list2) {
+			let counts1 = getCounts(list1);
+			let counts2 = getCounts(list2);
+
+			let keys = Object.keys(counts1); // all keys in both objects
+
+			for(key2 in counts2) {
+				if(!keys.includes(key2)) keys.push(key2);
+			}
+
+			let overlaps = {};
+			for(key of keys) {
+				if(!overlaps[key]) overlaps[key] = 0;
+				if(counts1[key] && counts2[key]) {
+					const n1 = counts1[key]; // neighbors
+					const n2 = counts2[key];
+
+					// for each common element, add 1 to "overlaps"
+					for(i in n1) {
+						if(n2.includes(n1[i])) overlaps[key] += 1;
+						n1.splice(i);
+					}
+				}
+			}
+
+			let ssq = 0;
+			for(o in overlaps) ssq += overlaps[o] ** 2;
+			return Math.sqrt(ssq);
+		}
+		function distPrev(list) {
+			let ssq = 0;
+			for(list2 of prevs) ssq += dist(list, list2);
+			return Math.sqrt(ssq);
+		}
+		function generate() {
+			const text = document.getElementById("names").value;
+			const names = text.split(/,?\s+/);
+
+			if(names.length === 0) return;
+
+			// const iterations = parseInt(document.getElementById("iter").value);
+			const size = parseInt(document.getElementById("size").value);
+
+			// now for the dumbest algorithm ever
+			let minDist = Infinity;
+			let smallest = {};
+			for(let i=0; i<1000; i++) {
+				const curr = makeGroups(names, size);
+				const dist = distPrev(curr);
+
+				if(dist < minDist) {
+					smallest = curr;
+					minDist = dist;
+					// console.log('found a better one!', smallest, minDist);
+				}
+			}
+
+			prevs.push(smallest);
+
+			renderGroups();
+			save();
+		}
+
+		load();
+		renderGroups();
+
+		document.getElementById("clear").addEventListener("click", clear);
+		document.getElementById("generate").addEventListener("click", generate);
+	</script>
+</body>
+</html>
